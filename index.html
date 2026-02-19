@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>Inventario DimotosLL</title>
+    <link rel="icon" href="haojin-logo-png_seeklogo-263373 (1).png">
+    <link rel="stylesheet" href="styles.css">}
+    
+
+</head>
+
+<body>
+    <header class="header">
+        <div class="header-container">
+            <div class="logo-area">
+                <img src="logo.png" alt="MotoInvent Logo" class="logo" id="logoImg">
+                <div class="logo-placeholder" id="logoPlaceholder" style="display: none;">
+                    <span>TU LOGO</span>
+                </div>
+            
+    </header>
+
+    <main class="main-container" id="app"></main>
+
+    <!-- Modal del escáner -->
+    <div id="scannerModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Escanear texto con cámara</h3>
+                <button class="modal-close" id="closeScanner">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="scanner-container">
+                    <video id="scannerVideo" class="scanner-video" playsinline></video>
+                    <canvas id="scannerCanvas" class="scanner-canvas" style="display: none;"></canvas>
+                    <div class="scanner-overlay">
+                        <div class="scanner-frame"></div>
+                    </div>
+                </div>
+                <div class="scanner-controls">
+                    <select id="scannerModeloSelect" class="scanner-select">
+                        <option value="">Selecciona modelo destino</option>
+                    </select>
+                    <button id="captureText" class="btn-scanner" disabled>
+                        📸 Capturar texto
+                    </button>
+                </div>
+                <div id="scannerResult" class="scanner-result" style="display: none;">
+                    <strong>Texto detectado:</strong>
+                    <p id="detectedText"></p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" id="cancelScanner">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <p>Inventario por modelo · edita, elimina, imprime · escanea</p>
+    </footer>
+
+    <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
