@@ -13,10 +13,13 @@
     const STORAGE_KEY = 'inventarioMotosApp';
     let inventarioData = {};
     let editState = {};
-    let scannerStream = null;
-    let modeloSeleccionadoScanner = null;
+    let cameraStream = null;
+    let modeloSeleccionado = null;
     let tesseractWorker = null;
-    let ultimoTextoDetectado = [];
+    let textoDetectado = [];
+    let textoSeleccionado = '';
+    let modeloGuardar = '';
+    let ubicacionGuardar = '';
 
     MODELOS.forEach(m => { editState[m.id] = null; });
 
@@ -53,7 +56,6 @@
         if (!tesseractWorker && typeof Tesseract !== 'undefined') {
             try {
                 console.log('Inicializando Tesseract...');
-                
                 tesseractWorker = await Tesseract.createWorker({
                     logger: progress => {
                         if (progress.status === 'recognizing text') {
@@ -74,75 +76,41 @@
         }
     }
 
-    // ========== FUNCIONES DEL ESCÁNER ==========
-    function abrirScanner(modeloId = null) {
-        const modal = document.getElementById('scannerModal');
-        const select = document.getElementById('scannerModeloSelect');
-        const captureBtn = document.getElementById('captureText');
+    // ========== FUNCIONES DE CÁMARA ==========
+    function abrirCamara(modeloId = null) {
+        const modal = document.getElementById('cameraModal');
+        if (!modal) return;
         
-        if (!modal || !select || !captureBtn) return;
+        modeloSeleccionado = modeloId;
+        modal.classList.add('show');
         
-        // Limpiar resultados anteriores
-        document.getElementById('scannerResult').style.display = 'none';
-        document.getElementById('detectedText').innerHTML = '';
-        ultimoTextoDetectado = [];
+        // Resetear UI
+        document.getElementById('photoPreview').style.display = 'none';
+        document.getElementById('scanResult').style.display = 'none';
+        document.getElementById('takePhotoBtn').style.display = 'block';
         
-        // Configurar select
-        select.innerHTML = '<option value="">Selecciona modelo</option>';
+        iniciarCamara();
+        initTesseract();
+        
+        // Llenar select de modelos
+        const select = document.getElementById('scanModeloSelect');
+        select.innerHTML = '<option value="">Seleccionar modelo</option>';
         MODELOS.forEach(m => {
             const option = document.createElement('option');
             option.value = m.id;
             option.textContent = m.nombre;
+            if (m.id === modeloId) option.selected = true;
             select.appendChild(option);
         });
-        
-        if (modeloId) {
-            select.value = modeloId;
-            modeloSeleccionadoScanner = modeloId;
-            captureBtn.disabled = false;
-        } else {
-            modeloSeleccionadoScanner = null;
-            captureBtn.disabled = true;
-        }
-        
-        modal.classList.add('show');
-        iniciarCamara();
-        initTesseract();
-        
-        mostrarInstrucciones();
-    }
-
-    function mostrarInstrucciones() {
-        const instrucciones = document.createElement('div');
-        instrucciones.className = 'scanner-instrucciones';
-        instrucciones.style.cssText = `
-            background: #e62828;
-            color: white;
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 15px;
-            text-align: center;
-        `;
-        instrucciones.innerHTML = `
-            <strong style="font-size: 18px;">📸 ENFOQUE LA ETIQUETA COMPLETA</strong>
-            <p style="margin-top: 10px;">Luego podrá seleccionar el texto correcto</p>
-        `;
-        
-        const modalBody = document.querySelector('.modal-body');
-        if (modalBody) {
-            const oldInst = document.querySelector('.scanner-instrucciones');
-            if (oldInst) oldInst.remove();
-            modalBody.insertBefore(instrucciones, modalBody.firstChild);
-        }
     }
 
     async function iniciarCamara() {
         try {
-            if (scannerStream) {
-                scannerStream.getTracks().forEach(track => track.stop());
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
             }
             
-            scannerStream = await navigator.mediaDevices.getUserMedia({ 
+            cameraStream = await navigator.mediaDevices.getUserMedia({ 
                 video: { 
                     facingMode: 'environment',
                     width: { ideal: 1920 },
@@ -150,9 +118,9 @@
                 } 
             });
             
-            const video = document.getElementById('scannerVideo');
+            const video = document.getElementById('cameraVideo');
             if (video) {
-                video.srcObject = scannerStream;
+                video.srcObject = cameraStream;
                 video.setAttribute('playsinline', true);
                 video.setAttribute('autoplay', true);
                 video.setAttribute('muted', true);
@@ -163,161 +131,138 @@
         }
     }
 
-    // ========== CAPTURAR Y MOSTRAR TODO EL TEXTO ==========
-    async function capturarTexto() {
-        if (!modeloSeleccionadoScanner) {
-            alert('Selecciona un modelo');
-            return;
-        }
-        
-        const video = document.getElementById('scannerVideo');
-        const canvas = document.getElementById('scannerCanvas');
-        const captureBtn = document.getElementById('captureText');
-        
-        if (!video || !canvas || !captureBtn) return;
-        
+    function tomarFoto() {
+        const video = document.getElementById('cameraVideo');
+        const canvas = document.getElementById('cameraCanvas');
         const context = canvas.getContext('2d');
-        canvas.width = video.videoWidth || 1280;
-        canvas.height = video.videoHeight || 720;
+        
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         
-        const originalText = captureBtn.textContent;
-        captureBtn.textContent = '⏳ ESCANEANDO...';
-        captureBtn.disabled = true;
+        // Mostrar preview
+        const capturedImage = document.getElementById('capturedImage');
+        capturedImage.src = canvas.toDataURL('image/png');
+        
+        document.getElementById('photoPreview').style.display = 'block';
+        document.getElementById('takePhotoBtn').style.display = 'none';
+        
+        // Detener cámara temporalmente
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(track => track.stop());
+            cameraStream = null;
+        }
+    }
+
+    async function escanearFoto() {
+        const canvas = document.getElementById('cameraCanvas');
+        const scanBtn = document.getElementById('scanPhotoBtn');
+        
+        scanBtn.textContent = '⏳ ESCANEANDO...';
+        scanBtn.disabled = true;
         
         try {
-            // Escanear TODO el texto de la imagen
             const { data: { text } } = await tesseractWorker.recognize(canvas);
             
             if (text && text.trim()) {
-                // Dividir en líneas y limpiar
                 const lineas = text.split('\n')
                     .map(linea => linea.trim())
-                    .filter(linea => linea.length > 2); // Solo líneas con más de 2 caracteres
+                    .filter(linea => linea.length > 1);
                 
-                ultimoTextoDetectado = lineas;
-                
-                console.log('Texto detectado:', lineas);
-                
-                // Mostrar todas las líneas detectadas para que el usuario elija
+                textoDetectado = lineas;
                 mostrarLineasDetectadas(lineas);
             } else {
-                alert('No se detectó texto. Intenta de nuevo.');
+                alert('No se detectó texto. Intenta con otra foto.');
             }
         } catch (error) {
             console.error('Error:', error);
             alert('Error al escanear. Intenta de nuevo.');
         } finally {
-            captureBtn.textContent = originalText;
-            captureBtn.disabled = false;
+            scanBtn.textContent = '🔍 ESCANEAR TEXTO';
+            scanBtn.disabled = false;
         }
     }
 
-    // ========== MOSTRAR LÍNEAS DETECTADAS ==========
     function mostrarLineasDetectadas(lineas) {
-        const scannerResult = document.getElementById('scannerResult');
-        const detectedText = document.getElementById('detectedText');
+        const container = document.getElementById('detectedLines');
+        let html = '<p style="margin-bottom: 10px;">Selecciona el texto del repuesto:</p>';
         
-        let html = `
-            <div style="background: #f5f5f5; padding: 15px; border-radius: 10px;">
-                <p style="color: #e62828; font-weight: bold; margin-bottom: 15px;">
-                    📋 TEXTO DETECTADO - Selecciona el nombre del repuesto:
-                </p>
-        `;
-        
-        // Mostrar cada línea como botón seleccionable
         lineas.forEach((linea, index) => {
-            // Resaltar posibles nombres de repuesto (líneas cortas sin muchos números)
-            const esProbableRepuesto = !linea.match(/\d{4,}/) && linea.length < 30 && linea.length > 1;
-            const estiloBoton = esProbableRepuesto ? 
-                'background: #4CAF50; color: white; font-weight: bold;' : 
-                'background: #e0e0e0; color: #333;';
-            
+            const esProbable = !linea.match(/\d{4,}/) && linea.length < 30 && linea.length > 1;
             html += `
-                <button onclick="seleccionarTexto('${escapeHTML(linea)}')" 
-                        style="display: block; width: 100%; margin: 5px 0; padding: 12px; 
-                               border: none; border-radius: 8px; cursor: pointer;
-                               ${estiloBoton}
-                               text-align: left; font-size: 16px;
-                               border: 2px solid ${esProbableRepuesto ? '#2e7d32' : '#999'};">
+                <button class="line-button" data-text="${escapeHTML(linea)}" style="${esProbable ? 'border-left: 5px solid #4CAF50;' : ''}">
                     ${index + 1}. ${escapeHTML(linea)}
                 </button>
             `;
         });
         
-        // Opción para escribir manualmente
-        html += `
-            <div style="margin-top: 20px; padding-top: 15px; border-top: 2px dashed #ccc;">
-                <p style="margin-bottom: 10px;">✏️ O escribe manualmente:</p>
-                <input type="text" id="textoManual" 
-                       style="width: 100%; padding: 12px; border: 2px solid #e62828; 
-                              border-radius: 8px; font-size: 16px;"
-                       placeholder="Ej: C.D.I">
-                <button onclick="guardarTextoManual()"
-                        style="width: 100%; margin-top: 10px; padding: 12px;
-                               background: #e62828; color: white; border: none;
-                               border-radius: 8px; font-size: 16px; font-weight: bold;
-                               cursor: pointer;">
-                    ✅ GUARDAR TEXTO MANUAL
-                </button>
-            </div>
-        `;
+        container.innerHTML = html;
         
-        html += '</div>';
-        detectedText.innerHTML = html;
-        scannerResult.style.display = 'block';
+        // Agregar eventos a los botones
+        container.querySelectorAll('.line-button').forEach(btn => {
+            btn.addEventListener('click', function() {
+                container.querySelectorAll('.line-button').forEach(b => b.classList.remove('selected'));
+                this.classList.add('selected');
+                textoSeleccionado = this.dataset.text;
+                
+                const saveBtn = document.getElementById('saveScannedText');
+                const modelo = document.getElementById('scanModeloSelect').value;
+                saveBtn.disabled = !(modelo && textoSeleccionado);
+            });
+        });
         
-        // Hacer que las funciones sean globales
-        window.seleccionarTexto = function(texto) {
-            if (confirm('¿Guardar este texto como repuesto?\n\n' + texto)) {
-                guardarRepuesto(texto);
-            }
-        };
-        
-        window.guardarTextoManual = function() {
-            const texto = document.getElementById('textoManual').value.trim();
-            if (texto) {
-                if (confirm('¿Guardar este texto como repuesto?\n\n' + texto)) {
-                    guardarRepuesto(texto);
-                }
-            } else {
-                alert('Escribe un texto');
-            }
-        };
+        document.getElementById('scanResult').style.display = 'block';
     }
 
-    // ========== GUARDAR REPUESTO ==========
-    function guardarRepuesto(texto) {
-        const modelo = MODELOS.find(m => m.id === modeloSeleccionadoScanner);
+    function guardarRepuesto() {
+        const modelo = document.getElementById('scanModeloSelect').value;
+        const ubicacion = document.getElementById('scanLocation').value.toUpperCase().trim();
+        
+        if (!modelo || !textoSeleccionado) {
+            alert('Selecciona modelo y texto');
+            return;
+        }
+        
+        const nombreCompleto = ubicacion ? 
+            `[${ubicacion}] ${textoSeleccionado}` : 
+            textoSeleccionado;
         
         const nuevoRepuesto = {
             id: crypto.randomUUID(),
-            nombre: texto,
+            nombre: nombreCompleto,
+            ubicacion: ubicacion || '',
             cantidad: 1
         };
         
-        if (!inventarioData[modeloSeleccionadoScanner]) {
-            inventarioData[modeloSeleccionadoScanner] = [];
+        if (!inventarioData[modelo]) {
+            inventarioData[modelo] = [];
         }
         
-        inventarioData[modeloSeleccionadoScanner].push(nuevoRepuesto);
+        inventarioData[modelo].push(nuevoRepuesto);
         persistirDatos();
         renderizar();
         
-        alert('✅ Repuesto guardado en ' + modelo.nombre);
-        cerrarScanner();
+        alert('✅ Repuesto guardado correctamente');
+        cerrarCamara();
     }
 
-    function cerrarScanner() {
-        const modal = document.getElementById('scannerModal');
+    function cerrarCamara() {
+        const modal = document.getElementById('cameraModal');
         if (modal) {
             modal.classList.remove('show');
         }
         
-        if (scannerStream) {
-            scannerStream.getTracks().forEach(track => track.stop());
-            scannerStream = null;
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(track => track.stop());
+            cameraStream = null;
         }
+        
+        // Resetear UI
+        document.getElementById('photoPreview').style.display = 'none';
+        document.getElementById('scanResult').style.display = 'none';
+        document.getElementById('takePhotoBtn').style.display = 'block';
+        document.getElementById('scanLocation').value = '';
+        textoSeleccionado = '';
     }
 
     // ========== UTILIDADES ==========
@@ -349,14 +294,16 @@
 
             let filasTabla = '';
             items.forEach(item => {
+                const ubicacion = item.ubicacion ? `[${item.ubicacion}]` : '';
                 filasTabla += '<tr>' +
-                    '<td>' + escapeHTML(item.nombre) + '</td>' +
+                    '<td>' + ubicacion + ' ' + escapeHTML(item.nombre) + '</td>' +
                     '<td>' + item.cantidad + '</td>' +
                     '<td>' +
                         '<button class="btn-editar" data-modelo="' + modelo.id + '" ' +
                                 'data-id="' + item.id + '" ' +
                                 'data-nombre="' + escapeHTML(item.nombre) + '" ' +
-                                'data-cantidad="' + item.cantidad + '">' +
+                                'data-cantidad="' + item.cantidad + '" ' +
+                                'data-ubicacion="' + escapeHTML(item.ubicacion || '') + '">' +
                             '✏️ Editar' +
                         '</button>' +
                         '<button class="btn-eliminar" data-modelo="' + modelo.id + '" data-id="' + item.id + '">' +
@@ -373,6 +320,7 @@
             const modoEdicion = edit !== null;
             const valorNombre = modoEdicion ? edit.nombre : '';
             const valorCantidad = modoEdicion ? edit.cantidad : '';
+            const valorUbicacion = modoEdicion ? (edit.ubicacion || '') : '';
             const textoBoton = modoEdicion ? '✅ ACTUALIZAR' : '➕ AGREGAR';
             const idEditando = modoEdicion ? edit.itemId : '';
             const mostrarCancel = modoEdicion ? 'inline-block' : 'none';
@@ -384,8 +332,8 @@
                         '<button class="btn-imprimir" data-imprimir="' + modelo.id + '">' +
                             '🖨️ Imprimir' +
                         '</button>' +
-                        '<button class="btn-scanner-card" data-scanner="' + modelo.id + '">' +
-                            '📸 Escanear' +
+                        '<button class="btn-camera-card" data-camera="' + modelo.id + '">' +
+                            '📸 Foto' +
                         '</button>' +
                     '</div>' +
                 '</div>' +
@@ -393,7 +341,7 @@
                     '<table class="tabla-repuestos">' +
                         '<thead>' +
                             '<tr>' +
-                                '<th>Repuesto</th>' +
+                                '<th>Repuesto (Ubicación)</th>' +
                                 '<th>Cant</th>' +
                                 '<th>Acciones</th>' +
                             '</tr>' +
@@ -407,11 +355,18 @@
                                'id="input-nombre-' + modelo.id + '" ' +
                                'placeholder="Nombre repuesto" ' +
                                'value="' + escapeHTML(valorNombre) + '">' +
+                        '<input type="text" ' +
+                               'id="input-ubicacion-' + modelo.id + '" ' +
+                               'placeholder="Ubicación (R1, V2)" ' +
+                               'value="' + escapeHTML(valorUbicacion) + '" ' +
+                               'style="flex: 0 1 100px;" ' +
+                               'maxlength="10">' +
                         '<input type="number" ' +
                                'id="input-cantidad-' + modelo.id + '" ' +
                                'placeholder="Cant" ' +
                                'min="0" ' +
-                               'value="' + escapeHTML(String(valorCantidad)) + '">' +
+                               'value="' + escapeHTML(String(valorCantidad)) + '" ' +
+                               'style="flex: 0 1 80px;">' +
                         '<button class="btn-agregar" ' +
                                 'data-modelo="' + modelo.id + '" ' +
                                 'data-editando="' + modoEdicion + '" ' +
@@ -465,7 +420,8 @@
                 editState[modelo] = {
                     itemId: btn.dataset.id,
                     nombre: btn.dataset.nombre,
-                    cantidad: btn.dataset.cantidad
+                    cantidad: btn.dataset.cantidad,
+                    ubicacion: btn.dataset.ubicacion
                 };
                 renderizar();
             });
@@ -479,11 +435,13 @@
                 
                 const inputNombre = document.getElementById('input-nombre-' + modelo);
                 const inputCantidad = document.getElementById('input-cantidad-' + modelo);
+                const inputUbicacion = document.getElementById('input-ubicacion-' + modelo);
                 
                 if (!inputNombre || !inputCantidad) return;
                 
                 const nombreVal = inputNombre.value.trim();
                 const cantidadVal = parseInt(inputCantidad.value, 10);
+                const ubicacionVal = inputUbicacion ? inputUbicacion.value.toUpperCase().trim() : '';
 
                 if (!nombreVal) {
                     alert('Escribe el nombre del repuesto');
@@ -495,13 +453,18 @@
                     return;
                 }
 
+                const nombreCompleto = ubicacionVal ? 
+                    `[${ubicacionVal}] ${nombreVal}` : 
+                    nombreVal;
+
                 if (editando) {
                     const idEdit = btn.dataset.idEdit;
                     const items = inventarioData[modelo];
                     const index = items.findIndex(it => it.id === idEdit);
                     
                     if (index !== -1) {
-                        items[index].nombre = nombreVal;
+                        items[index].nombre = nombreCompleto;
+                        items[index].ubicacion = ubicacionVal;
                         items[index].cantidad = cantidadVal;
                     }
                     editState[modelo] = null;
@@ -509,7 +472,8 @@
                     if (!inventarioData[modelo]) inventarioData[modelo] = [];
                     inventarioData[modelo].push({
                         id: crypto.randomUUID(),
-                        nombre: nombreVal,
+                        nombre: nombreCompleto,
+                        ubicacion: ubicacionVal,
                         cantidad: cantidadVal
                     });
                 }
@@ -530,39 +494,96 @@
             }
         });
 
-        // Botones de escáner
-        document.querySelectorAll('.btn-scanner-card').forEach(btn => {
+        // Botones de cámara
+        document.querySelectorAll('.btn-camera-card').forEach(btn => {
             btn.addEventListener('click', () => {
-                abrirScanner(btn.dataset.scanner);
+                abrirCamara(btn.dataset.camera);
             });
         });
 
-        // Eventos del modal
-        const selectModelo = document.getElementById('scannerModeloSelect');
-        if (selectModelo) {
-            selectModelo.addEventListener('change', (e) => {
-                modeloSeleccionadoScanner = e.target.value;
-                const captureBtn = document.getElementById('captureText');
-                if (captureBtn) {
-                    captureBtn.disabled = !e.target.value;
-                }
-            });
-        }
+        // Imprimir
+        document.querySelectorAll('.btn-imprimir').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const modeloId = btn.dataset.imprimir;
+                const modelo = MODELOS.find(m => m.id === modeloId);
+                if (!modelo) return;
 
-        const captureBtn = document.getElementById('captureText');
-        if (captureBtn) {
-            captureBtn.addEventListener('click', capturarTexto);
-        }
+                const items = inventarioData[modeloId] || [];
+                
+                const ventana = window.open('', '_blank');
+                if (!ventana) {
+                    alert('Permite ventanas emergentes');
+                    return;
+                }
+
+                let filas = '';
+                items.forEach(it => {
+                    filas += '<tr>' +
+                        '<td>' + escapeHTML(it.nombre) + '</td>' +
+                        '<td style="text-align: center;">' + it.cantidad + '</td>' +
+                    '</tr>';
+                });
+
+                if (filas === '') {
+                    filas = '<tr><td colspan="2" style="padding: 40px; text-align: center;">Inventario vacío</td></tr>';
+                }
+
+                const contenido = '<!DOCTYPE html>' +
+                    '<html>' +
+                    '<head>' +
+                        '<title>' + modelo.nombre + '</title>' +
+                        '<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
+                        '<style>' +
+                            'body { font-family: sans-serif; padding: 1rem; }' +
+                            'h1 { color: #c41e1e; font-size: 1.8rem; }' +
+                            'table { width: 100%; border-collapse: collapse; margin-top: 20px; }' +
+                            'th { background: #e62828; color: white; padding: 12px; text-align: left; }' +
+                            'td { padding: 10px; border-bottom: 1px solid #ffd6d6; }' +
+                            '.ubicacion { color: #e62828; font-weight: bold; }' +
+                            '@media print { th { background: #e62828 !important; } }' +
+                        '</style>' +
+                    '</head>' +
+                    '<body>' +
+                        '<h1>🛵 ' + modelo.nombre + '</h1>' +
+                        '<table>' +
+                            '<tr><th>Repuesto</th><th>Cantidad</th></tr>' +
+                            filas +
+                        '</table>' +
+                        '<p style="margin-top: 30px; color: #b71c1c;">' +
+                            'MotoInvent · ' + new Date().toLocaleDateString() +
+                        '</p>' +
+                        '<script>window.onload = () => setTimeout(() => window.print(), 300);</script>' +
+                    '</body>' +
+                    '</html>';
+
+                ventana.document.write(contenido);
+                ventana.document.close();
+            });
+        });
+
+        // Eventos de cámara
+        document.getElementById('takePhotoBtn')?.addEventListener('click', tomarFoto);
+        document.getElementById('scanPhotoBtn')?.addEventListener('click', escanearFoto);
+        document.getElementById('retakePhotoBtn')?.addEventListener('click', () => {
+            document.getElementById('photoPreview').style.display = 'none';
+            document.getElementById('scanResult').style.display = 'none';
+            document.getElementById('takePhotoBtn').style.display = 'block';
+            iniciarCamara();
+        });
         
-        const closeBtn = document.getElementById('closeScanner');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', cerrarScanner);
-        }
+        document.getElementById('scanModeloSelect')?.addEventListener('change', (e) => {
+            const saveBtn = document.getElementById('saveScannedText');
+            saveBtn.disabled = !(e.target.value && textoSeleccionado);
+        });
         
-        const cancelBtn = document.getElementById('cancelScanner');
-        if (cancelBtn) {
-            cancelBtn.addEventListener('click', cerrarScanner);
-        }
+        document.getElementById('scanLocation')?.addEventListener('input', () => {
+            // No hace falta validar, solo guardar
+        });
+        
+        document.getElementById('saveScannedText')?.addEventListener('click', guardarRepuesto);
+        
+        document.getElementById('closeCamera')?.addEventListener('click', cerrarCamara);
+        document.getElementById('cancelCamera')?.addEventListener('click', cerrarCamara);
     }
 
     // ========== INICIALIZACIÓN ==========
