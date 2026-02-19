@@ -16,6 +16,7 @@
     let scannerStream = null;
     let modeloSeleccionadoScanner = null;
     let tesseractWorker = null;
+    let ultimoTextoDetectado = [];
 
     MODELOS.forEach(m => { editState[m.id] = null; });
 
@@ -47,7 +48,7 @@
         };
     }
 
-    // ========== INICIALIZAR TESSERACT PARA GITHUB PAGES ==========
+    // ========== INICIALIZAR TESSERACT ==========
     async function initTesseract() {
         if (!tesseractWorker && typeof Tesseract !== 'undefined') {
             try {
@@ -66,15 +67,14 @@
                 
                 await tesseractWorker.loadLanguage('spa');
                 await tesseractWorker.initialize('spa');
-                console.log('✅ Tesseract listo para escanear');
+                console.log('✅ Tesseract listo');
             } catch (error) {
-                console.error('Error inicializando Tesseract:', error);
-                alert('Error al cargar el sistema de escaneo. Recarga la página.');
+                console.error('Error:', error);
             }
         }
     }
 
-    // ========== FUNCIONES DEL ESCÁNER - SOLO CENTRO DE ETIQUETA ==========
+    // ========== FUNCIONES DEL ESCÁNER ==========
     function abrirScanner(modeloId = null) {
         const modal = document.getElementById('scannerModal');
         const select = document.getElementById('scannerModeloSelect');
@@ -85,9 +85,10 @@
         // Limpiar resultados anteriores
         document.getElementById('scannerResult').style.display = 'none';
         document.getElementById('detectedText').innerHTML = '';
+        ultimoTextoDetectado = [];
         
         // Configurar select
-        select.innerHTML = '<option value="">🔍 Selecciona modelo</option>';
+        select.innerHTML = '<option value="">Selecciona modelo</option>';
         MODELOS.forEach(m => {
             const option = document.createElement('option');
             option.value = m.id;
@@ -108,11 +109,10 @@
         iniciarCamara();
         initTesseract();
         
-        // Mostrar instrucciones específicas
-        mostrarInstruccionesCentro();
+        mostrarInstrucciones();
     }
 
-    function mostrarInstruccionesCentro() {
+    function mostrarInstrucciones() {
         const instrucciones = document.createElement('div');
         instrucciones.className = 'scanner-instrucciones';
         instrucciones.style.cssText = `
@@ -122,17 +122,10 @@
             border-radius: 10px;
             margin-bottom: 15px;
             text-align: center;
-            border: 3px solid white;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
         `;
         instrucciones.innerHTML = `
-            <strong style="font-size: 18px;">📸 ENFOQUE EL CENTRO DE LA ETIQUETA</strong>
-            <div style="margin-top: 10px; background: white; color: #e62828; padding: 10px; border-radius: 8px;">
-                <p style="margin: 5px 0;">⬇️ El escáner capturará:</p>
-                <p style="margin: 5px 0; font-weight: bold;">1. NOMBRE DEL REPUESTO (ej: C.D.I)</p>
-                <p style="margin: 5px 0; font-weight: bold;">2. CÓDIGO (ej: 311000-1360-02TY0000)</p>
-            </div>
-            <p style="margin-top: 10px; font-size: 14px;">✅ Asegure buena iluminación y enfoque</p>
+            <strong style="font-size: 18px;">📸 ENFOQUE LA ETIQUETA COMPLETA</strong>
+            <p style="margin-top: 10px;">Luego podrá seleccionar el texto correcto</p>
         `;
         
         const modalBody = document.querySelector('.modal-body');
@@ -149,16 +142,13 @@
                 scannerStream.getTracks().forEach(track => track.stop());
             }
             
-            // Configuración específica para móviles
-            const constraints = {
-                video: {
+            scannerStream = await navigator.mediaDevices.getUserMedia({ 
+                video: { 
                     facingMode: 'environment',
                     width: { ideal: 1920 },
                     height: { ideal: 1080 }
-                }
-            };
-            
-            scannerStream = await navigator.mediaDevices.getUserMedia(constraints);
+                } 
+            });
             
             const video = document.getElementById('scannerVideo');
             if (video) {
@@ -169,17 +159,14 @@
                 await video.play();
             }
         } catch (error) {
-            console.error('Error al acceder a la cámara:', error);
-            alert('No se pudo acceder a la cámara. Asegúrate de:'
-                + '\n- Usar HTTPS'
-                + '\n- Dar permisos de cámara');
+            alert('Error con la cámara. Asegúrate de dar permisos.');
         }
     }
 
-    // ========== CAPTURAR SOLO EL CENTRO DE LA ETIQUETA ==========
-    async function capturarCentroEtiqueta() {
+    // ========== CAPTURAR Y MOSTRAR TODO EL TEXTO ==========
+    async function capturarTexto() {
         if (!modeloSeleccionadoScanner) {
-            alert('Primero selecciona el modelo de moto');
+            alert('Selecciona un modelo');
             return;
         }
         
@@ -190,182 +177,135 @@
         if (!video || !canvas || !captureBtn) return;
         
         const context = canvas.getContext('2d');
-        
-        // Configurar canvas
         canvas.width = video.videoWidth || 1280;
         canvas.height = video.videoHeight || 720;
-        
-        // Dibujar imagen completa
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         
-        // Calcular área CENTRAL (50% del centro)
-        const centerWidth = canvas.width * 0.5;
-        const centerHeight = canvas.height * 0.4;
-        const startX = (canvas.width - centerWidth) / 2;
-        const startY = (canvas.height - centerHeight) / 2;
-        
-        // Crear canvas solo para el centro
-        const centerCanvas = document.createElement('canvas');
-        centerCanvas.width = centerWidth;
-        centerCanvas.height = centerHeight;
-        const centerCtx = centerCanvas.getContext('2d');
-        
-        // Dibujar solo el área central
-        centerCtx.drawImage(canvas, startX, startY, centerWidth, centerHeight, 0, 0, centerWidth, centerHeight);
-        
-        // Mostrar estado
         const originalText = captureBtn.textContent;
         captureBtn.textContent = '⏳ ESCANEANDO...';
         captureBtn.disabled = true;
         
         try {
-            console.log('Escaneando centro de etiqueta...');
-            
-            // Reconocer texto del área central
-            const { data: { text } } = await tesseractWorker.recognize(centerCanvas);
-            
-            console.log('Texto detectado en centro:', text);
+            // Escanear TODO el texto de la imagen
+            const { data: { text } } = await tesseractWorker.recognize(canvas);
             
             if (text && text.trim()) {
-                // Procesar para encontrar nombre y código
-                const resultado = extraerNombreYCodigo(text);
+                // Dividir en líneas y limpiar
+                const lineas = text.split('\n')
+                    .map(linea => linea.trim())
+                    .filter(linea => linea.length > 2); // Solo líneas con más de 2 caracteres
                 
-                // Mostrar resultado
-                const detectedText = document.getElementById('detectedText');
-                const scannerResult = document.getElementById('scannerResult');
+                ultimoTextoDetectado = lineas;
                 
-                let htmlResultado = '';
-                if (resultado.nombre || resultado.codigo) {
-                    htmlResultado = `
-                        <div style="background: #f0f9f0; padding: 15px; border-radius: 10px; border: 2px solid #4CAF50;">
-                            <p style="color: #2e7d32; font-weight: bold; margin-bottom: 10px;">✅ TEXTO DETECTADO:</p>
-                            ${resultado.nombre ? '<p><strong>🔧 REPUESTO:</strong> ' + resultado.nombre + '</p>' : ''}
-                            ${resultado.codigo ? '<p><strong>🔢 CÓDIGO:</strong> ' + resultado.codigo + '</p>' : ''}
-                            <p style="margin-top: 10px; font-size: 12px; color: #666;">📋 Todo: ' + resultado.textoOriginal + '</p>
-                        </div>
-                    `;
-                } else {
-                    htmlResultado = '<p style="color: #e62828;">❌ No se detectó texto claro. Intenta de nuevo.</p>';
-                }
+                console.log('Texto detectado:', lineas);
                 
-                detectedText.innerHTML = htmlResultado;
-                scannerResult.style.display = 'block';
-                
-                // Si se detectó al menos el nombre, preguntar si guardar
-                if (resultado.nombre) {
-                    const nombreGuardar = resultado.nombre;
-                    const codigoGuardar = resultado.codigo ? ' [' + resultado.codigo + ']' : '';
-                    
-                    if (confirm('¿Guardar este repuesto?\n\n' +
-                        '📦 ' + nombreGuardar + codigoGuardar + '\n' +
-                        '📌 En: ' + MODELOS.find(m => m.id === modeloSeleccionadoScanner).nombre)) {
-                        
-                        const nuevoRepuesto = {
-                            id: crypto.randomUUID(),
-                            nombre: nombreGuardar + codigoGuardar,
-                            cantidad: 1
-                        };
-                        
-                        if (!inventarioData[modeloSeleccionadoScanner]) {
-                            inventarioData[modeloSeleccionadoScanner] = [];
-                        }
-                        
-                        inventarioData[modeloSeleccionadoScanner].push(nuevoRepuesto);
-                        persistirDatos();
-                        renderizar();
-                        
-                        alert('✅ Repuesto guardado correctamente');
-                    }
-                }
+                // Mostrar todas las líneas detectadas para que el usuario elija
+                mostrarLineasDetectadas(lineas);
             } else {
-                alert('No se detectó texto en el centro. Ajusta el enfoque.');
+                alert('No se detectó texto. Intenta de nuevo.');
             }
         } catch (error) {
-            console.error('Error al escanear:', error);
-            alert('Error al procesar la imagen. Intenta de nuevo.');
+            console.error('Error:', error);
+            alert('Error al escanear. Intenta de nuevo.');
         } finally {
             captureBtn.textContent = originalText;
             captureBtn.disabled = false;
         }
     }
 
-    // ========== EXTRAER SOLO NOMBRE Y CÓDIGO ==========
-    function extraerNombreYCodigo(textoCompleto) {
-        const lineas = textoCompleto.split('\n')
-            .map(linea => linea.trim())
-            .filter(linea => linea.length > 0);
+    // ========== MOSTRAR LÍNEAS DETECTADAS ==========
+    function mostrarLineasDetectadas(lineas) {
+        const scannerResult = document.getElementById('scannerResult');
+        const detectedText = document.getElementById('detectedText');
         
-        console.log('Líneas a analizar:', lineas);
+        let html = `
+            <div style="background: #f5f5f5; padding: 15px; border-radius: 10px;">
+                <p style="color: #e62828; font-weight: bold; margin-bottom: 15px;">
+                    📋 TEXTO DETECTADO - Selecciona el nombre del repuesto:
+                </p>
+        `;
         
-        let resultado = {
-            nombre: '',
-            codigo: '',
-            textoOriginal: textoCompleto
+        // Mostrar cada línea como botón seleccionable
+        lineas.forEach((linea, index) => {
+            // Resaltar posibles nombres de repuesto (líneas cortas sin muchos números)
+            const esProbableRepuesto = !linea.match(/\d{4,}/) && linea.length < 30 && linea.length > 1;
+            const estiloBoton = esProbableRepuesto ? 
+                'background: #4CAF50; color: white; font-weight: bold;' : 
+                'background: #e0e0e0; color: #333;';
+            
+            html += `
+                <button onclick="seleccionarTexto('${escapeHTML(linea)}')" 
+                        style="display: block; width: 100%; margin: 5px 0; padding: 12px; 
+                               border: none; border-radius: 8px; cursor: pointer;
+                               ${estiloBoton}
+                               text-align: left; font-size: 16px;
+                               border: 2px solid ${esProbableRepuesto ? '#2e7d32' : '#999'};">
+                    ${index + 1}. ${escapeHTML(linea)}
+                </button>
+            `;
+        });
+        
+        // Opción para escribir manualmente
+        html += `
+            <div style="margin-top: 20px; padding-top: 15px; border-top: 2px dashed #ccc;">
+                <p style="margin-bottom: 10px;">✏️ O escribe manualmente:</p>
+                <input type="text" id="textoManual" 
+                       style="width: 100%; padding: 12px; border: 2px solid #e62828; 
+                              border-radius: 8px; font-size: 16px;"
+                       placeholder="Ej: C.D.I">
+                <button onclick="guardarTextoManual()"
+                        style="width: 100%; margin-top: 10px; padding: 12px;
+                               background: #e62828; color: white; border: none;
+                               border-radius: 8px; font-size: 16px; font-weight: bold;
+                               cursor: pointer;">
+                    ✅ GUARDAR TEXTO MANUAL
+                </button>
+            </div>
+        `;
+        
+        html += '</div>';
+        detectedText.innerHTML = html;
+        scannerResult.style.display = 'block';
+        
+        // Hacer que las funciones sean globales
+        window.seleccionarTexto = function(texto) {
+            if (confirm('¿Guardar este texto como repuesto?\n\n' + texto)) {
+                guardarRepuesto(texto);
+            }
         };
         
-        // Patrones para identificar el código
-        const patronCodigo = [
-            /^\d{5,}[-]\d{4}[-]\w+$/,  // 311000-1360-02TY0000
-            /^\d{5,}[-]\d{4}/,          // 311000-1360
-            /^\d{6,}/,                   // 311000
-            /[A-Z0-9]{8,}/               // Códigos largos
-        ];
-        
-        // Palabras a ignorar (no son nombres de repuesto)
-        const ignorar = ['GENUINE', 'PARTS', 'LECHUZA', 'AGUILA', 'CONDOR', 'CANARIO', 'TUCAN', '200CC', '110CC'];
-        
-        // Buscar primero el código
-        for (let linea of lineas) {
-            for (let patron of patronCodigo) {
-                if (patron.test(linea) || linea.match(patron)) {
-                    resultado.codigo = linea;
-                    break;
+        window.guardarTextoManual = function() {
+            const texto = document.getElementById('textoManual').value.trim();
+            if (texto) {
+                if (confirm('¿Guardar este texto como repuesto?\n\n' + texto)) {
+                    guardarRepuesto(texto);
                 }
+            } else {
+                alert('Escribe un texto');
             }
-            if (resultado.codigo) break;
+        };
+    }
+
+    // ========== GUARDAR REPUESTO ==========
+    function guardarRepuesto(texto) {
+        const modelo = MODELOS.find(m => m.id === modeloSeleccionadoScanner);
+        
+        const nuevoRepuesto = {
+            id: crypto.randomUUID(),
+            nombre: texto,
+            cantidad: 1
+        };
+        
+        if (!inventarioData[modeloSeleccionadoScanner]) {
+            inventarioData[modeloSeleccionadoScanner] = [];
         }
         
-        // Buscar el nombre (línea que no sea código ni palabras ignoradas)
-        for (let linea of lineas) {
-            const lineaMayus = linea.toUpperCase();
-            
-            // Verificar que no sea código
-            let esCodigo = false;
-            for (let patron of patronCodigo) {
-                if (patron.test(linea) || linea.match(patron)) {
-                    esCodigo = true;
-                    break;
-                }
-            }
-            
-            // Verificar que no sea palabra ignorada
-            let esIgnorada = false;
-            for (let palabra of ignorar) {
-                if (lineaMayus.includes(palabra)) {
-                    esIgnorada = true;
-                    break;
-                }
-            }
-            
-            // Si no es código, no es ignorada y tiene longitud adecuada
-            if (!esCodigo && !esIgnorada && linea.length > 1 && linea.length < 30) {
-                resultado.nombre = linea;
-                break;
-            }
-        }
+        inventarioData[modeloSeleccionadoScanner].push(nuevoRepuesto);
+        persistirDatos();
+        renderizar();
         
-        // Si no encontramos nombre, usar la línea más significativa
-        if (!resultado.nombre) {
-            for (let linea of lineas) {
-                if (linea.length > 2 && linea.length < 20 && !linea.includes('-')) {
-                    resultado.nombre = linea;
-                    break;
-                }
-            }
-        }
-        
-        console.log('Resultado extracción:', resultado);
-        return resultado;
+        alert('✅ Repuesto guardado en ' + modelo.nombre);
+        cerrarScanner();
     }
 
     function cerrarScanner() {
@@ -375,20 +315,9 @@
         }
         
         if (scannerStream) {
-            scannerStream.getTracks().forEach(track => {
-                track.stop();
-                track.enabled = false;
-            });
+            scannerStream.getTracks().forEach(track => track.stop());
             scannerStream = null;
         }
-        
-        const scannerResult = document.getElementById('scannerResult');
-        if (scannerResult) {
-            scannerResult.style.display = 'none';
-        }
-        
-        const instrucciones = document.querySelector('.scanner-instrucciones');
-        if (instrucciones) instrucciones.remove();
     }
 
     // ========== UTILIDADES ==========
@@ -601,7 +530,7 @@
             }
         });
 
-        // Botones de escáner en cada tarjeta
+        // Botones de escáner
         document.querySelectorAll('.btn-scanner-card').forEach(btn => {
             btn.addEventListener('click', () => {
                 abrirScanner(btn.dataset.scanner);
@@ -622,7 +551,7 @@
 
         const captureBtn = document.getElementById('captureText');
         if (captureBtn) {
-            captureBtn.addEventListener('click', capturarCentroEtiqueta);
+            captureBtn.addEventListener('click', capturarTexto);
         }
         
         const closeBtn = document.getElementById('closeScanner');
@@ -639,10 +568,4 @@
     // ========== INICIALIZACIÓN ==========
     cargarDatos();
     renderizar();
-    
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', inicializarLogo);
-    } else {
-        inicializarLogo();
-    }
 })();
