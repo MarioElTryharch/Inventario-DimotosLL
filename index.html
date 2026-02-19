@@ -21,48 +21,72 @@
             
     </header>
 
-    <main class="main-container" id="app"></main>
+        <main class="main-container" id="app"></main>
 
-    <!-- Modal del escáner -->
-    <div id="scannerModal" class="modal">
+    <!-- Modal para tomar foto -->
+    <div id="cameraModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>Escanear texto con cámara</h3>
-                <button class="modal-close" id="closeScanner">&times;</button>
+                <h3>📸 Tomar foto de etiqueta</h3>
+                <button class="modal-close" id="closeCamera">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="scanner-container">
-                    <video id="scannerVideo" class="scanner-video" playsinline></video>
-                    <canvas id="scannerCanvas" class="scanner-canvas" style="display: none;"></canvas>
-                    <div class="scanner-overlay">
-                        <div class="scanner-frame"></div>
+                <div class="camera-container">
+                    <video id="cameraVideo" class="camera-video" playsinline autoplay></video>
+                    <canvas id="cameraCanvas" class="camera-canvas" style="display: none;"></canvas>
+                    <div class="camera-overlay">
+                        <div class="camera-frame"></div>
                     </div>
                 </div>
-                <div class="scanner-controls">
-                    <select id="scannerModeloSelect" class="scanner-select">
-                        <option value="">Selecciona modelo destino</option>
-                    </select>
-                    <button id="captureText" class="btn-scanner" disabled>
-                        📸 Capturar texto
+                
+                <div class="camera-controls">
+                    <button id="takePhotoBtn" class="btn-camera">
+                        📸 TOMAR FOTO
                     </button>
                 </div>
-                <div id="scannerResult" class="scanner-result" style="display: none;">
-                    <strong>Texto detectado:</strong>
-                    <p id="detectedText"></p>
+
+                <!-- Área de vista previa y resultado -->
+                <div id="photoPreview" class="photo-preview" style="display: none;">
+                    <img id="capturedImage" class="captured-image">
+                    <div class="preview-controls">
+                        <button id="scanPhotoBtn" class="btn-scan">🔍 ESCANEAR TEXTO</button>
+                        <button id="retakePhotoBtn" class="btn-retake">↺ TOMAR OTRA</button>
+                    </div>
+                </div>
+
+                <!-- Resultado del escaneo -->
+                <div id="scanResult" class="scan-result" style="display: none;">
+                    <h4>📋 TEXTO DETECTADO</h4>
+                    <div id="detectedLines" class="detected-lines"></div>
+                    
+                    <div class="model-selector">
+                        <label>Modelo de moto:</label>
+                        <select id="scanModeloSelect">
+                            <option value="">Seleccionar modelo</option>
+                        </select>
+                    </div>
+
+                    <div class="location-input">
+                        <label>Ubicación (ej: R1, V2, A3):</label>
+                        <input type="text" id="scanLocation" placeholder="Ej: R1, V2, A3" maxlength="10">
+                    </div>
+
+                    <button id="saveScannedText" class="btn-save" disabled>
+                        💾 GUARDAR EN INVENTARIO
+                    </button>
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn-cancel" id="cancelScanner">Cancelar</button>
+                <button class="btn-cancel" id="cancelCamera">Cancelar</button>
             </div>
         </div>
     </div>
 
     <footer class="footer">
-        <p>Inventario por modelo · edita, elimina, imprime · escanea</p>
+        <p>Inventario por modelo · imprime · escanea desde foto · ubicación</p>
     </footer>
 
     <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
     <script src="script.js"></script>
 </body>
-
 </html>
